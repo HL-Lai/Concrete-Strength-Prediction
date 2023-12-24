@@ -1,0 +1,100 @@
+---
+title: "Concrete Compressive Strength Prediction"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r}
+concrete <- read.csv("concrete.csv", na.strings='?')
+```
+
+# Data preparation
+```{r}
+head(concrete)
+attach(concrete)
+```
+
+```{r}
+dim(concrete)
+```
+
+# Linear Model 
+[All variables]
+```{r}
+lm.fit1 = lm(ccs~., concrete)
+summary(lm.fit1)
+```
+
+[Variables with small p-values except fly ash]
+```{r}
+lm.fit1 = lm(ccs~cement+blast+water+superplast+age, concrete)
+summary(lm.fit1)
+coef(lm.fit1)
+```
+CCS (Concrete Compressive Strength) = 24.441811 + 0.090456(cement) + 0.061769(blast) - 0.184159(water) + 0.661796(superplast) + 0.310931(age)
+
+```{r}
+confint(lm.fit1)
+plot(predict(lm.fit1), rstudent(lm.fit1))
+plot(lm.fit1)
+```
+
+
+# LASSO
+```{r}
+library(glmnet)
+x = model.matrix(ccs~., concrete)[,-1]
+y = concrete$ccs
+```
+
+```{r}
+grid = 10^seq(10, -2, length = 100)
+penalty = rep(1,ncol(x))
+lasso.mod = glmnet(x, y, alpha = 0, lambda = grid)
+dim(coef(lasso.mod))
+```
+
+```{r}
+set.seed(42) 
+train=sample(1:nrow(x), nrow(x)/2) 
+test=(-train) 
+y.test=y[test] 
+
+cv.out=cv.glmnet(x[train,],y[train], nfolds = 10, alpha=0)
+plot(cv.out) 
+bestlam=cv.out$lambda.min 
+cat("Best lambda =", bestlam, "\n")
+```
+
+```{r}
+lasso.mod = glmnet(x[train,], y[train], alpha = 1, lambda = grid)
+plot(lasso.mod)
+```
+
+
+
+```{r}
+lasso.pred = predict(lasso.mod, s = bestlam, newx = x[test,])
+cat("MSE =", mean((lasso.pred - y.test)^2), "\n")
+cat("RSE =", sqrt(mean((lasso.pred - y.test)^2)), "\n")
+out = glmnet(x, y, alpha = 1, lambda = grid)
+lasso.coef = predict(out, type = "coefficients", s = bestlam)[1:9,]
+
+lasso.coef = lasso.coef[lasso.coef!=0]
+lasso.coef
+```
+CCS (Concrete Compressive Strength) = 42.870797228 + 0.075050087(cement) + 0.042210243(blast) - 0.173995669(water) + 0.544121914(superplast) - 0.005248224(coarse_agg) - 0.009835187(fine_agg) + 0.277485397(age)
+
+```{r}
+summary(lasso.coef)
+```
+
+```{r}
+sst = sum((y.test - mean(y))^2)
+sse = sum((lasso.pred - y.test)^2)
+
+# Check R-Squared
+r_squared = 1 - sse/sst
+cat("R-squared =", r_squared)
+```
